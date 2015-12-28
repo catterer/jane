@@ -18,10 +18,45 @@
 
 using boost::asio::ip::tcp;
 
-class session : public std::enable_shared_from_this<session>
+#include <boost/format.hpp>
+#include <ctype.h>
+#include <stdio.h>
+template <typename IterType>
+void hexdump(std::ostream& os, IterType begin, IterType end) {
+    const size_t width = 16;
+    for (auto it = begin;
+            it < end;
+            it += width)
+    {
+        std::cout << it - begin;
+        for (auto j = it; j-it < width; j++) {
+            if (j < end)
+                os << boost::format("%1$#02x ") % (unsigned)(*j);
+            else
+                os << "     ";
+        }
+        os << " ";
+        for (auto j = it; j-it < width; j++) {
+            if (j < end)
+                os << (isprint(*j) ? *j : '.');
+        }
+        os << std::endl;
+    }
+}
+
+class ConnBuf: public std::array<char, 1024>
 {
 public:
-    session(tcp::socket socket):
+    friend std::ostream& operator<<(std::ostream& os, const ConnBuf& b) {
+        hexdump(os, b.begin(), b.end());
+        return os;
+    }
+};
+
+class TcpConn: public std::enable_shared_from_this<TcpConn>
+{
+public:
+    TcpConn(tcp::socket socket):
         socket_(std::move(socket))
     {
     }
@@ -35,35 +70,38 @@ private:
         auto self(shared_from_this());
         socket_.async_read_some(boost::asio::buffer(data_),
                 [this, self](boost::system::error_code ec, std::size_t length) {
-                    if (!ec)
-                        do_write(length);
+                    if (ec) {
+                        std::cout << "read err: " << ec << std::endl;
+                        return;
+                    }
+                    std::cout << "got message: " << length << ":" << std::endl
+                        << data_ << std::endl;
+                    do_write(length);
                 });
     }
 
-    void do_write(std::size_t length)
-    {
+    void do_write(std::size_t length) {
         auto self(shared_from_this());
         boost::asio::async_write(socket_, boost::asio::buffer(data_, length),
-                [this, self](boost::system::error_code ec, std::size_t /*length*/) {
-                    if (!ec)
-                        do_read();
+                [this, self](boost::system::error_code ec, std::size_t length) {
+                    if (ec) {
+                        std::cout << "write err" << ec << std::endl;
+                        return;
+                    }
+                    std::cout << "out message: " << length << ":" << std::endl
+                        << data_ << std::endl;
+                    do_read();
                 });
     }
 
-    // The socket used to communicate with the client.
     tcp::socket socket_;
-
-    // Buffer used to store data received from the client.
-    std::array<char, 1024> data_;
-
-    // The allocator to use for handler-based custom memory allocation.
-    handler_allocator allocator_;
+    ConnBuf data_;
 };
 
-class server
+class TcpBind
 {
 public:
-    server(boost::asio::io_service& io_service, short port)
+    TcpBind(boost::asio::io_service& io_service, short port)
         : acceptor_(io_service, tcp::endpoint(tcp::v4(), port)),
             socket_(io_service)
     {
@@ -71,12 +109,11 @@ public:
     }
 
 private:
-    void do_accept()
-    {
+    void do_accept() {
         acceptor_.async_accept(socket_,
                 [this](boost::system::error_code ec) {
                     if (!ec)
-                        std::make_shared<session>(std::move(socket_))->start();
+                        std::make_shared<TcpConn>(std::move(socket_))->start();
                     do_accept();
                 });
     }
@@ -91,12 +128,12 @@ int main(int argc, char* argv[])
     {
         if (argc != 2)
         {
-            std::cerr << "Usage: server <port>\n";
+            std::cerr << "Usage: TcpBind <port>\n";
             return 1;
         }
 
         boost::asio::io_service io_service;
-        server s(io_service, std::atoi(argv[1]));
+        TcpBind b(io_service, std::atoi(argv[1]));
         io_service.run();
     }
     catch (std::exception& e)
