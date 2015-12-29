@@ -9,10 +9,10 @@ void hexdump(std::ostream& os, IterType begin, IterType end) {
             it < end;
             it += width)
     {
-        std::cout << it - begin;
+        std::cout << boost::format("%1$8x\t") % (it - begin);
         for (auto j = it; j-it < width; j++) {
             if (j < end)
-                os << boost::format("%1$#02x ") % (unsigned)(*j);
+                os << boost::format("%1$02x ") % (unsigned)(*j);
             else
                 os << "     ";
         }
