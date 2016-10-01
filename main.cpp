@@ -55,9 +55,6 @@ private:
 
     // Buffer used to store data received from the client.
     std::array<char, 1024> data_;
-
-    // The allocator to use for handler-based custom memory allocation.
-    handler_allocator allocator_;
 };
 
 class server
